@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
 const { jwtSecret, jwtExpiresIn, maxFailedLogins, lockoutTimeMinutes } = require('../config');
 const { successResponse, errorResponse } = require('../utils/responseHelper');
+const { generateCode } = require('../utils/codeGenerator');
 const { logAudit } = require('../services/auditService');
 
 /**
@@ -198,16 +199,14 @@ const register = async (req, res, next) => {
 
     const newUserId = userResult.insertId;
 
-    // If company_name is provided, also create a linked customer profile record
-    if (company_name || phone) {
-      const customerCode = `CUST-${1000 + newUserId}`;
-      await pool.query(
-        `INSERT INTO customers (customer_code, customer_name, email, phone, company_name, user_id, status)
-         VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE')
-         ON DUPLICATE KEY UPDATE user_id = VALUES(user_id)`,
-        [customerCode, `${first_name} ${last_name}`, email, phone || `+1-555-${newUserId}000`, company_name || `${first_name}'s Organization`, newUserId]
-      );
-    }
+    // Always create or link customer profile record for CUSTOMER role with unique code
+    const customerCode = await generateCode('CUST', 'customers', 'customer_code');
+    await pool.query(
+      `INSERT INTO customers (customer_code, customer_name, email, phone, company_name, user_id, status)
+       VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE')
+       ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), customer_name = VALUES(customer_name)`,
+      [customerCode, `${first_name} ${last_name}`, email, phone || `+1-555-${newUserId}000`, company_name || `${first_name}'s Organization`, newUserId]
+    );
 
     await logAudit({
       userId: newUserId,
@@ -582,6 +581,104 @@ const getPublicStats = async (req, res, next) => {
   }
 };
 
+/**
+ * Update Profile for logged-in user (Any Role)
+ */
+const updateProfile = async (req, res, next) => {
+  try {
+    const userId = req.user.user_id;
+    const { first_name, last_name, phone, department, company_name } = req.body;
+
+    if (req.user.role_name === 'CUSTOMER' && phone) {
+      const [existingPhone] = await pool.query(
+        'SELECT customer_id FROM customers WHERE phone = ? AND user_id != ? AND email != ?',
+        [phone, userId, req.user.email]
+      );
+      if (existingPhone.length > 0) {
+        return errorResponse(res, 'This phone number is already registered to another customer account.', null, 409);
+      }
+    }
+
+    await pool.query(
+      `UPDATE users SET 
+         first_name = COALESCE(?, first_name),
+         last_name = COALESCE(?, last_name),
+         phone = COALESCE(?, phone),
+         department = COALESCE(?, department)
+       WHERE user_id = ?`,
+      [first_name || null, last_name || null, phone || null, department || null, userId]
+    );
+
+    // If customer, also sync customer record
+    if (req.user.role_name === 'CUSTOMER') {
+      const custName = `${first_name || req.user.first_name} ${last_name || req.user.last_name}`;
+      await pool.query(
+        `UPDATE customers SET 
+           customer_name = COALESCE(?, customer_name),
+           phone = COALESCE(?, phone),
+           company_name = COALESCE(?, company_name)
+         WHERE user_id = ? OR email = ?`,
+        [custName, phone || null, company_name || null, userId, req.user.email]
+      );
+    }
+
+    const [updatedUsers] = await pool.query(
+      `SELECT u.user_id, u.role_id, u.first_name, u.last_name, u.email, u.phone,
+              u.status, u.department, r.role_name, u.created_at
+       FROM users u
+       JOIN roles r ON u.role_id = r.role_id
+       WHERE u.user_id = ?`,
+      [userId]
+    );
+
+    await logAudit({
+      userId,
+      action: 'UPDATE_PROFILE',
+      entityName: 'USER',
+      recordId: userId,
+      newValue: updatedUsers[0],
+      req
+    });
+
+    return successResponse(res, 'Profile updated successfully.', updatedUsers[0]);
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Permanently Delete Account (Self-Service)
+ */
+const deleteAccount = async (req, res, next) => {
+  try {
+    const userId = req.user.user_id;
+
+    await logAudit({
+      userId,
+      action: 'ACCOUNT_DELETED',
+      entityName: 'USER',
+      recordId: userId,
+      newValue: { email: req.user.email, role: req.user.role_name },
+      req
+    });
+
+    // Clean up references and delete user
+    await pool.query('DELETE FROM notifications WHERE user_id = ?', [userId]);
+    await pool.query('UPDATE customers SET user_id = NULL WHERE user_id = ?', [userId]);
+    await pool.query('UPDATE customers SET assigned_to = NULL WHERE assigned_to = ?', [userId]);
+    await pool.query('UPDATE leads SET assigned_to = NULL WHERE assigned_to = ?', [userId]);
+    await pool.query('UPDATE opportunities SET assigned_to = NULL WHERE assigned_to = ?', [userId]);
+    await pool.query('UPDATE followups SET assigned_to = NULL WHERE assigned_to = ?', [userId]);
+    await pool.query('UPDATE activities SET assigned_to = NULL WHERE assigned_to = ?', [userId]);
+    await pool.query('DELETE FROM customer_requests WHERE user_id = ?', [userId]);
+    await pool.query('DELETE FROM users WHERE user_id = ?', [userId]);
+
+    return successResponse(res, 'Your account has been permanently deleted.');
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   login,
   register,
@@ -593,5 +690,7 @@ module.exports = {
   registerAdmin,
   registerManager,
   registerSalesExec,
-  getPublicStats
+  getPublicStats,
+  updateProfile,
+  deleteAccount
 };

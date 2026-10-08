@@ -14,6 +14,8 @@ router.post('/sales-register', authLimiter, validateRegister, authController.reg
 router.get('/public-stats', authController.getPublicStats);
 router.post('/logout', authenticateToken, authController.logout);
 router.get('/me', authenticateToken, authController.getCurrentUser);
+router.put('/profile', authenticateToken, authController.updateProfile);
+router.delete('/delete-account', authenticateToken, authController.deleteAccount);
 router.post('/forgot-password', authLimiter, authController.forgotPassword);
 router.post('/reset-password', authLimiter, authController.resetPassword);
 

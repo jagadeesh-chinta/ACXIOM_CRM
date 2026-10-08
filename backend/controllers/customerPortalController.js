@@ -1,5 +1,6 @@
 const pool = require('../config/db');
 const { successResponse, errorResponse } = require('../utils/responseHelper');
+const { generateCode } = require('../utils/codeGenerator');
 const { logAudit } = require('../services/auditService');
 
 /**
@@ -8,7 +9,7 @@ const { logAudit } = require('../services/auditService');
 const getCustomerProfile = async (req, res, next) => {
   try {
     const userId = req.user.user_id;
-    const [custRows] = await pool.query(
+    let [custRows] = await pool.query(
       `SELECT c.*, 
               u.first_name as rep_first_name, u.last_name as rep_last_name, 
               u.email as rep_email, u.phone as rep_phone, u.department as rep_dept
@@ -17,6 +18,27 @@ const getCustomerProfile = async (req, res, next) => {
        WHERE c.user_id = ? OR c.email = ?`,
       [userId, req.user.email]
     );
+
+    // If customer record doesn't exist yet, automatically create one so details are always dynamic and real
+    if (!custRows || custRows.length === 0) {
+      const customerCode = await generateCode('CUST', 'customers', 'customer_code');
+      const fallbackPhone = req.user.phone || `+1-555-${userId.toString().padStart(4, '0')}`;
+      await pool.query(
+        `INSERT INTO customers (customer_code, customer_name, email, phone, company_name, user_id, status)
+         VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE')
+         ON DUPLICATE KEY UPDATE user_id = VALUES(user_id)`,
+        [customerCode, `${req.user.first_name} ${req.user.last_name}`, req.user.email, fallbackPhone, `${req.user.first_name}'s Enterprise`, userId]
+      );
+      [custRows] = await pool.query(
+        `SELECT c.*, 
+                u.first_name as rep_first_name, u.last_name as rep_last_name, 
+                u.email as rep_email, u.phone as rep_phone, u.department as rep_dept
+         FROM customers c
+         LEFT JOIN users u ON c.assigned_to = u.user_id
+         WHERE c.user_id = ? OR c.email = ?`,
+        [userId, req.user.email]
+      );
+    }
 
     return successResponse(res, 'Customer profile retrieved.', {
       user: req.user,
@@ -103,19 +125,22 @@ const createCustomerRequest = async (req, res, next) => {
       assignedTo = custRows[0].assigned_to;
     } else {
       // Auto create a client customer record if none exists yet
+      const custCode = await generateCode('CUST', 'customers', 'customer_code');
+      const fallbackPhone = req.user.phone || `+1-555-${userId.toString().padStart(4, '0')}`;
       const [newCust] = await pool.query(
         `INSERT INTO customers (customer_code, customer_name, email, phone, company_name, user_id, status)
-         VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE')`,
+         VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE')
+         ON DUPLICATE KEY UPDATE user_id = VALUES(user_id)`,
         [
-          `CUST-${1000 + userId}`,
+          custCode,
           `${req.user.first_name} ${req.user.last_name}`,
           req.user.email,
-          req.user.phone || `+1-555-${userId}000`,
+          fallbackPhone,
           `${req.user.first_name}'s Organization`,
           userId
         ]
       );
-      customerId = newCust.insertId;
+      customerId = newCust.insertId || custRows[0]?.customer_id;
       assignedTo = 3; // Default to Alex Turner
     }
 
@@ -191,9 +216,56 @@ const updateCustomerRequest = async (req, res, next) => {
   }
 };
 
+/**
+ * Update Customer Self Profile
+ */
+const updateCustomerProfile = async (req, res, next) => {
+  try {
+    const userId = req.user.user_id;
+    const { first_name, last_name, phone, company_name, address, city, state, postal_code, country } = req.body;
+
+    if (phone) {
+      const [existingPhone] = await pool.query(
+        'SELECT customer_id FROM customers WHERE phone = ? AND user_id != ? AND email != ?',
+        [phone, userId, req.user.email]
+      );
+      if (existingPhone.length > 0) {
+        return errorResponse(res, 'This phone number is already registered to another customer account.', null, 409);
+      }
+    }
+
+    if (first_name || last_name || phone) {
+      await pool.query(
+        'UPDATE users SET first_name = COALESCE(?, first_name), last_name = COALESCE(?, last_name), phone = COALESCE(?, phone) WHERE user_id = ?',
+        [first_name || null, last_name || null, phone || null, userId]
+      );
+    }
+
+    const customerName = `${first_name || req.user.first_name} ${last_name || req.user.last_name}`;
+    await pool.query(
+      `UPDATE customers SET 
+         customer_name = COALESCE(?, customer_name),
+         phone = COALESCE(?, phone),
+         company_name = COALESCE(?, company_name),
+         address = COALESCE(?, address),
+         city = COALESCE(?, city),
+         state = COALESCE(?, state),
+         postal_code = COALESCE(?, postal_code),
+         country = COALESCE(?, country)
+       WHERE user_id = ? OR email = ?`,
+      [customerName, phone || null, company_name || null, address || null, city || null, state || null, postal_code || null, country || null, userId, req.user.email]
+    );
+
+    return successResponse(res, 'Profile updated successfully.');
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   getCustomerProfile,
   getCustomerRequests,
   createCustomerRequest,
-  updateCustomerRequest
+  updateCustomerRequest,
+  updateCustomerProfile
 };

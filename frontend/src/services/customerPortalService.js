@@ -19,5 +19,10 @@ export const customerPortalService = {
   updateRequest: async (id, data) => {
     const res = await api.patch(`/customer-portal/requests/${id}`, data);
     return res.data;
+  },
+
+  updateProfile: async (data) => {
+    const res = await api.put('/customer-portal/profile', data);
+    return res.data;
   }
 };

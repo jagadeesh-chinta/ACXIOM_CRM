@@ -60,5 +60,15 @@ export const authService = {
   getPublicStats: async () => {
     const res = await api.get('/auth/public-stats');
     return res.data;
+  },
+
+  updateProfile: async (data) => {
+    const res = await api.put('/auth/profile', data);
+    return res.data;
+  },
+
+  deleteAccount: async () => {
+    const res = await api.delete('/auth/delete-account');
+    return res.data;
   }
 };

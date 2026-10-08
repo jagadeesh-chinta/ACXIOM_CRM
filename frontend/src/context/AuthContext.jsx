@@ -105,6 +105,24 @@ export const AuthProvider = ({ children }) => {
     throw new Error(res.message || 'Sales Executive registration failed');
   };
 
+  const updateProfile = async (formData) => {
+    const res = await authService.updateProfile(formData);
+    if (res.success && res.data) {
+      setUser(res.data);
+      localStorage.setItem('user', JSON.stringify(res.data));
+    }
+    return res;
+  };
+
+  const deleteAccount = async () => {
+    const res = await authService.deleteAccount();
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setUser(null);
+    setToken(null);
+    return res;
+  };
+
   const logout = async () => {
     try {
       await authService.logout();
@@ -129,6 +147,8 @@ export const AuthProvider = ({ children }) => {
         registerAdmin,
         registerManager,
         registerSalesExec,
+        updateProfile,
+        deleteAccount,
         logout
       }}
     >

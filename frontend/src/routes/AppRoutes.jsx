@@ -13,6 +13,7 @@ import { ForbiddenPage, NotFoundPage } from '../pages/ErrorPages';
 
 // Dynamic Dashboard
 import { DashboardDispatcher } from '../dashboards/DashboardDispatcher';
+import { SettingsPage } from '../pages/SettingsPage';
 
 // CRM Pages
 import { CustomersPage } from '../pages/customers/CustomersPage';
@@ -49,6 +50,7 @@ export const AppRoutes = () => {
       <Route element={<ProtectedRoute />}>
         <Route element={<DashboardLayout />}>
           <Route path="/dashboard" element={<DashboardDispatcher />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="/customers" element={<CustomersPage />} />
           <Route path="/customers/:id" element={<CustomerDetailPage />} />
           <Route path="/opportunities" element={<OpportunitiesPage />} />

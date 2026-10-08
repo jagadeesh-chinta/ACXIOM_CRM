@@ -7,6 +7,10 @@ export const Navbar = ({ toggleSidebar, title = 'Overview' }) => {
   const { user, role, logout } = useAuth();
   const navigate = useNavigate();
   const [showNotifications, setShowNotifications] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(() => {
+    const read = localStorage.getItem(`notifications_read_${user?.email || 'default'}`);
+    return read ? 0 : 2;
+  });
 
   const handleLogout = async () => {
     await logout();
@@ -32,11 +36,24 @@ export const Navbar = ({ toggleSidebar, title = 'Overview' }) => {
       ];
     }
     return [
-      { id: 1, text: 'Support request update from account manager', time: '3h ago', icon: 'bi-chat-dots text-primary' }
+      { id: 1, text: 'Welcome to AcxiomCRM Customer Relationship Center', time: 'Just now', icon: 'bi-stars text-warning' },
+      { id: 2, text: 'Your account manager will coordinate active opportunities', time: '1h ago', icon: 'bi-chat-dots text-primary' }
     ];
   };
 
   const notifications = getNotifications();
+
+  const handleToggleNotifications = () => {
+    const nextState = !showNotifications;
+    setShowNotifications(nextState);
+    if (nextState) {
+      // Disappear the red number once user sees notifications
+      setUnreadCount(0);
+      if (user?.email) {
+        localStorage.setItem(`notifications_read_${user.email}`, 'true');
+      }
+    }
+  };
 
   return (
     <header className="sticky-top bg-white border-bottom border-light-subtle px-3 px-lg-4 py-2" style={{ zIndex: 1020 }}>
@@ -56,23 +73,26 @@ export const Navbar = ({ toggleSidebar, title = 'Overview' }) => {
           </div>
         </div>
 
-        {/* Right Side: Quick Tools, Notifications, User Menu */}
-        <div className="d-flex align-items-center gap-3">
+        {/* Right Side: Settings, Notifications, User Menu */}
+        <div className="d-flex align-items-center gap-2 gap-sm-3">
           {/* Notifications Dropdown */}
           <div className="position-relative">
             <button
-              onClick={() => setShowNotifications(!showNotifications)}
+              onClick={handleToggleNotifications}
               className="btn btn-sm btn-light rounded-circle position-relative p-2"
               style={{ width: '40px', height: '40px' }}
               title="Notifications"
             >
               <i className="bi bi-bell fs-6 text-secondary"></i>
-              <span
-                className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger"
-                style={{ fontSize: '0.65rem' }}
-              >
-                {notifications.length}
-              </span>
+              {/* Once seen, the red badge number disappears */}
+              {unreadCount > 0 && (
+                <span
+                  className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger"
+                  style={{ fontSize: '0.65rem' }}
+                >
+                  {unreadCount}
+                </span>
+              )}
             </button>
 
             {showNotifications && (
@@ -82,7 +102,9 @@ export const Navbar = ({ toggleSidebar, title = 'Overview' }) => {
               >
                 <div className="p-3 border-bottom d-flex justify-content-between align-items-center bg-light rounded-top">
                   <span className="fw-bold small text-dark">Notifications</span>
-                  <span className="badge bg-primary-subtle text-primary">{notifications.length} New</span>
+                  <span className="badge bg-secondary-subtle text-secondary" style={{ fontSize: '0.7rem' }}>
+                    All Caught Up
+                  </span>
                 </div>
                 <div className="list-group list-group-flush" style={{ maxHeight: '250px', overflowY: 'auto' }}>
                   {notifications.map((n) => (
@@ -107,8 +129,23 @@ export const Navbar = ({ toggleSidebar, title = 'Overview' }) => {
             )}
           </div>
 
+          {/* Settings Section Icon in Navbar */}
+          <button
+            onClick={() => navigate('/settings')}
+            className="btn btn-sm btn-light rounded-circle p-2"
+            style={{ width: '40px', height: '40px' }}
+            title="Settings (Profile, Logout, Delete Account)"
+          >
+            <i className="bi bi-gear fs-6 text-secondary"></i>
+          </button>
+
           {/* User Profile Pill */}
-          <div className="d-flex align-items-center gap-2 ps-2 border-start border-light-subtle">
+          <div
+            onClick={() => navigate(role === 'CUSTOMER' ? '/customer/profile' : '/settings')}
+            className="d-flex align-items-center gap-2 ps-2 border-start border-light-subtle"
+            style={{ cursor: 'pointer' }}
+            title="View Profile & Settings"
+          >
             <div
               className="rounded-circle d-flex align-items-center justify-content-center text-white fw-bold shadow-sm"
               style={{ width: '36px', height: '36px', background: 'var(--primary-gradient)', fontSize: '0.85rem' }}
@@ -123,13 +160,6 @@ export const Navbar = ({ toggleSidebar, title = 'Overview' }) => {
                 {user?.email}
               </div>
             </div>
-            <button
-              onClick={handleLogout}
-              className="btn btn-sm btn-outline-secondary border-0 ms-1 p-2 rounded-circle"
-              title="Logout"
-            >
-              <i className="bi bi-box-arrow-right"></i>
-            </button>
           </div>
         </div>
       </div>

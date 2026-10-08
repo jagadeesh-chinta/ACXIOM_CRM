@@ -330,7 +330,7 @@ const getCustomerDashboard = async (req, res, next) => {
     const userEmail = req.user.email;
 
     // Find linked customer record
-    const [custRows] = await pool.query(
+    let [custRows] = await pool.query(
       `SELECT c.*, 
               u.first_name as rep_first_name, u.last_name as rep_last_name, 
               u.email as rep_email, u.phone as rep_phone, u.department as rep_dept
@@ -339,6 +339,27 @@ const getCustomerDashboard = async (req, res, next) => {
        WHERE c.user_id = ? OR c.email = ?`,
       [userId, userEmail]
     );
+
+    if (!custRows || custRows.length === 0) {
+      const { generateCode } = require('../utils/codeGenerator');
+      const customerCode = await generateCode('CUST', 'customers', 'customer_code');
+      const fallbackPhone = req.user.phone || `+1-555-${userId.toString().padStart(4, '0')}`;
+      await pool.query(
+        `INSERT INTO customers (customer_code, customer_name, email, phone, company_name, user_id, status)
+         VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE')
+         ON DUPLICATE KEY UPDATE user_id = VALUES(user_id)`,
+        [customerCode, `${req.user.first_name} ${req.user.last_name}`, req.user.email, fallbackPhone, `${req.user.first_name}'s Enterprise`, userId]
+      );
+      [custRows] = await pool.query(
+        `SELECT c.*, 
+                u.first_name as rep_first_name, u.last_name as rep_last_name, 
+                u.email as rep_email, u.phone as rep_phone, u.department as rep_dept
+         FROM customers c
+         LEFT JOIN users u ON c.assigned_to = u.user_id
+         WHERE c.user_id = ? OR c.email = ?`,
+        [userId, userEmail]
+      );
+    }
 
     const customer = custRows[0] || null;
     const customerId = customer ? customer.customer_id : null;

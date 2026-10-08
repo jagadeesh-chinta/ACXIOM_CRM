@@ -168,15 +168,18 @@ export const Sidebar = ({ isOpen, toggleSidebar }) => {
           </ul>
         </div>
 
-        {/* Bottom Actions */}
-        <div className="pt-3 border-top border-secondary border-opacity-25 mt-auto">
-          <button
-            onClick={handleLogout}
-            className="btn btn-sm btn-outline-danger w-100 d-flex align-items-center justify-content-center gap-2 py-2"
+        {/* Bottom Settings Navigation Section */}
+        <div className="pt-2 border-top border-secondary border-opacity-25 mt-auto">
+          <NavLink
+            to="/settings"
+            onClick={() => {
+              if (window.innerWidth < 992) toggleSidebar();
+            }}
+            className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
           >
-            <i className="bi bi-box-arrow-right"></i>
-            <span>Sign Out</span>
-          </button>
+            <i className="bi bi-gear-fill fs-6 text-info"></i>
+            <span>Settings</span>
+          </NavLink>
         </div>
       </aside>
     </>
